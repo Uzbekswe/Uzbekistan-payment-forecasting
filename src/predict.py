@@ -65,7 +65,7 @@ def make_prediction(target_date: str, model_name: str, models: dict) -> dict:
         "date": target_dt,
         "transaction_volume": last_known_volume,     # placeholder — not used as feature
         "avg_transaction_value": last_known_avg_value,
-        "region": "Tashkent",
+        "region": "Tashkent",   # not in FEATURE_COLS, has no effect on predictions
     }
     if last_known_rate is not None:
         target_row["usd_uzs_rate"] = last_known_rate
@@ -111,8 +111,14 @@ def make_prediction(target_date: str, model_name: str, models: dict) -> dict:
     is_weekend = target_dt.dayofweek >= 5
 
     ramadan_dates = [
+        ("2019-05-05", "2019-06-03"),
+        ("2020-04-23", "2020-05-23"),
+        ("2021-04-12", "2021-05-12"),
+        ("2022-04-02", "2022-05-02"),
+        ("2023-03-22", "2023-04-21"),
         ("2024-03-10", "2024-04-09"),
-        ("2025-03-01", "2025-03-30"),   # approximate 2025 Ramadan
+        ("2025-03-01", "2025-03-30"),
+        ("2026-02-18", "2026-03-19"),
     ]
     is_ramadan = any(
         pd.Timestamp(s) <= target_dt <= pd.Timestamp(e)

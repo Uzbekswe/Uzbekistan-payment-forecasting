@@ -1,6 +1,12 @@
 import pandas as pd
 import numpy as np
 
+# Fixed reference date — must match the earliest date in the training data.
+# Using df["date"].min() would break inference: a 60-row window passed at
+# prediction time would produce days_elapsed in the 0–60 range instead of
+# the trained 0–2192 range, silently degrading tree model predictions.
+_TRAINING_START = pd.Timestamp("2019-01-01")
+
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -14,7 +20,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df["day_of_month"]  = df["date"].dt.day
     df["quarter"]       = df["date"].dt.quarter
     df["week_of_year"]  = df["date"].dt.isocalendar().week.astype(int)
-    df["days_elapsed"]  = (df["date"] - df["date"].min()).dt.days
+    df["days_elapsed"]  = (df["date"] - _TRAINING_START).dt.days
 
     # ── Sine/cosine cyclical encoding ──────────────────────────────
     df["month_sin"]        = np.sin(2 * np.pi * df["month"] / 12)
@@ -32,6 +38,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         ("2022-04-02", "2022-05-02"),
         ("2023-03-22", "2023-04-21"),
         ("2024-03-10", "2024-04-09"),
+        ("2025-03-01", "2025-03-30"),
+        ("2026-02-18", "2026-03-19"),
     ]
     df["is_ramadan"] = 0
     for start, end in ramadan_dates:
@@ -40,6 +48,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df["is_navruz"]    = ((df["month"] == 3) & (df["day_of_month"].isin([20,21,22,23]))).astype(int)
     df["is_payday"]    = df["day_of_month"].isin([10, 25]).astype(int)
     df["is_weekend"]   = (df["day_of_week"] >= 5).astype(int)
+    # Historical flag — always 0 for inference dates after 2020 Q2
     df["is_covid_dip"] = ((df["year"] == 2020) & (df["quarter"] == 2)).astype(int)
 
     # ── Lag features ───────────────────────────────────────────────

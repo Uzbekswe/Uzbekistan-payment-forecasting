@@ -105,7 +105,7 @@ def predict(request: PredictRequest):
     Predict daily transaction volume for a given date.
 
     - **date**: Target date in YYYY-MM-DD format
-    - **model**: One of `linear`, `xgboost` (default), `catboost`
+    - **model**: One of `linear`, `xgboost`, `catboost` (default)
 
     Returns the predicted transaction volume plus Uzbekistan-specific
     calendar context (Navruz, Ramadan, payday, weekend flags).

@@ -213,9 +213,10 @@ cd uzbekistan-payment-forecasting
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Generate data
-python data/generate_data.py
-python data/fetch_exchange_rates.py   # fetches real CBU data (~3 min)
+# Data is already included in the repo — skip to training.
+# To regenerate from scratch (optional):
+#   python data/generate_data.py
+#   python data/fetch_exchange_rates.py   # fetches real CBU data (~3 min)
 
 # Build features & train models
 python src/train.py
@@ -500,9 +501,10 @@ cd uzbekistan-payment-forecasting
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Ma'lumotlar yaratish
-python data/generate_data.py
-python data/fetch_exchange_rates.py   # haqiqiy CBU ma'lumotlarini oladi (~3 daqiqa)
+# Ma'lumotlar repoda allaqachon mavjud — to'g'ridan-to'g'ri o'qitishga o'ting.
+# Qaytadan yaratish uchun (ixtiyoriy):
+#   python data/generate_data.py
+#   python data/fetch_exchange_rates.py   # haqiqiy CBU ma'lumotlarini oladi (~3 daqiqa)
 
 # Xususiyatlar yaratish va modellarni o'qitish
 python src/train.py
@@ -787,9 +789,10 @@ cd uzbekistan-payment-forecasting
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Генерация данных
-python data/generate_data.py
-python data/fetch_exchange_rates.py   # загружает реальные данные ЦБ (~3 мин)
+# Данные уже включены в репозиторий — переходите сразу к обучению.
+# Для повторной генерации с нуля (опционально):
+#   python data/generate_data.py
+#   python data/fetch_exchange_rates.py   # загружает реальные данные ЦБ (~3 мин)
 
 # Разработка признаков и обучение моделей
 python src/train.py
