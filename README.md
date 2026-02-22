@@ -307,8 +307,8 @@ This project is directly applicable to engineering roles at:
 Bachelor's degree in AI and Big Data
 Building production ML systems for Uzbekistan's growing tech ecosystem.
 
-- GitHub: [github.com/myusername](https://github.com/Uzbekswe)
-- LinkedIn: [linkedin.com/in/yourprofile](www.linkedin.com/in/bakhodirovs)
+- GitHub: [github.com/uzbekswe](https://github.com/Uzbekswe)
+- LinkedIn: [linkedin.com/in/bakhodirovs](www.linkedin.com/in/bakhodirovs)
 
 ---
 
