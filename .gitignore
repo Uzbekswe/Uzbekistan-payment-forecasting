@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+models/*
+!models/.gitkeep
+plots/*
+!plots/.gitkeep
+*.egg-info/
+dist/
+.venv/
