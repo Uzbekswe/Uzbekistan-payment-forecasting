@@ -8,3 +8,7 @@ plots/*
 *.egg-info/
 dist/
 .venv/
+venv/
+.DS_Store
+catboost_info/
+uzbekistan_payment_data.csv
