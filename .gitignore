@@ -5,6 +5,7 @@ models/*
 !models/.gitkeep
 plots/*
 !plots/.gitkeep
+!plots/*.png
 *.egg-info/
 dist/
 .venv/
