@@ -186,18 +186,3 @@ if __name__ == "__main__":
         if f != ".gitkeep":
             logger.info(f"  📈 plots/{f}")
 
-
-if __name__ == "__main__":
-    print("📊 Generating evaluation plots...")
-    preds, metrics, xgb, cat = load_artifacts()
-
-    plot_forecast_vs_actual(preds, metrics)
-    plot_metrics_comparison(metrics)
-    plot_shap(xgb, preds)
-    plot_residuals(preds)
-
-    print("\n✅ All plots saved to /plots — ready for LinkedIn & README!")
-    print("\nPlots generated:")
-    for f in sorted(os.listdir("plots")):
-        if f != ".gitkeep":
-            print(f"  📈 plots/{f}")

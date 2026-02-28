@@ -4,6 +4,14 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Literal, Dict, Any, List
 
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from pydantic import BaseModel, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -14,13 +22,10 @@ logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))  # makes 'src' importable
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, field_validator
-
 from src.predict import load_models, make_prediction
 
+# Configure Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # ── Lifespan: load models once at startup, clean up at shutdown ───────────────
 _models: Dict[str, Any] = {}
@@ -29,19 +34,18 @@ _models: Dict[str, Any] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load all models into memory when the server starts."""
-    logger.info("🚀 Loading models into memory...")
+    logger.info("Loading models into memory...")
     try:
         _models.update(load_models())
         loaded = [k for k in _models if k not in ("metrics", "history_df")]
-        logger.info(f"✅ Models loaded successfully: {loaded}")
+        logger.info(f"Models loaded successfully: {loaded}")
     except Exception as e:
-        logger.error(f"❌ Failed to load models: {e}")
-        # In production, you might want to exit here if models are critical
+        logger.error(f"Failed to load models: {e}")
     
     yield
     
     _models.clear()
-    logger.info("👋 Server shutting down — models released.")
+    logger.info("Server shutting down — models released.")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -70,10 +74,14 @@ app = FastAPI(
     },
 )
 
+# Rate limit configuration
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # ── Middleware (Hardening) ───────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific domains
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -81,7 +89,7 @@ app.add_middleware(
 
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"] # Add your domain here
+    allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"]
 )
 
 
@@ -115,7 +123,8 @@ class PredictResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.get("/health", tags=["Status"])
-def health():
+@limiter.limit("5/minute")
+def health(request: Request):
     """Returns server health and list of loaded models."""
     loaded = [k for k in _models if k not in ("metrics", "history_df")]
     return {
@@ -125,7 +134,8 @@ def health():
 
 
 @app.get("/models", tags=["Status"])
-def list_models():
+@limiter.limit("5/minute")
+def list_models(request: Request):
     """Returns available models and their test-set performance metrics."""
     if "metrics" not in _models:
         raise HTTPException(status_code=503, detail="Models not loaded yet.")
@@ -143,24 +153,20 @@ def list_models():
 
 
 @app.post("/predict", response_model=PredictResponse, tags=["Forecasting"])
-def predict(request: PredictRequest):
+@limiter.limit("10/minute")
+def predict(request: Request, predict_data: PredictRequest):
     """
     Predict daily transaction volume for a given date.
-
-    - **date**: Target date in YYYY-MM-DD format
-    - **model**: One of `linear`, `xgboost`, `catboost` (default)
-
-    Returns the predicted transaction volume plus Uzbekistan-specific
-    calendar context (Navruz, Ramadan, payday, weekend flags).
     """
     if not _models:
         raise HTTPException(status_code=503, detail="Models not loaded yet.")
 
     try:
-        result = make_prediction(request.date, request.model, _models)
+        result = make_prediction(predict_data.date, predict_data.model, _models)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+        logger.error(f"Prediction failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     return PredictResponse(**result)

@@ -25,13 +25,19 @@ from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 from src.features import build_features, FEATURE_COLS, TARGET_COL
 
-def train_test_split_temporal(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Walk-forward split — never shuffle time-series data!"""
-    train = df[df["date"] < "2023-01-01"].copy()
+def train_test_split_temporal(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Time-series split:
+    - Train: 2019-01-01 to 2022-08-31
+    - Val:   2022-09-01 to 2022-12-31 (Used for early stopping)
+    - Test:  2023-01-01 to 2024-12-31 (True holdout)
+    """
+    train = df[df["date"] < "2022-09-01"].copy()
+    val   = df[(df["date"] >= "2022-09-01") & (df["date"] < "2023-01-01")].copy()
     test  = df[df["date"] >= "2023-01-01"].copy()
-    logger.info(f"  Train: {train['date'].min().date()} → {train['date'].max().date()} ({len(train)} rows)")
-    logger.info(f"  Test:  {test['date'].min().date()} → {test['date'].max().date()} ({len(test)} rows)")
-    return train, test
+    
+    logger.info(f"Split: Train={len(train)}, Val={len(val)}, Test={len(test)}")
+    return train, val, test
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, model_name: str) -> Dict[str, float]:
     """Calculate and return evaluation metrics for predictions."""
@@ -42,43 +48,47 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, model_name: str) -> 
     return {"mae": round(float(mae), 2), "rmse": round(float(rmse), 2), "smape": round(float(smape), 4)}
 
 def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv") -> Dict[str, Any]:
-    """Executes the full training pipeline for all models."""
+    """Executes the full training pipeline with proper validation set."""
     os.makedirs("models", exist_ok=True)
 
-    logger.info("📂 Loading and building features...")
+    logger.info("Loading and building features...")
     df_raw = pd.read_csv(data_path)
     df = build_features(df_raw)
 
-    logger.info("\n📅 Splitting data...")
-    train, test = train_test_split_temporal(df)
+    logger.info("Splitting data into Train, Validation, and Test sets...")
+    train, val, test = train_test_split_temporal(df)
 
-    X_train = train[FEATURE_COLS]
-    y_train = train[TARGET_COL]
-    X_test  = test[FEATURE_COLS]
-    y_test  = test[TARGET_COL]
+    X_train, y_train = train[FEATURE_COLS], train[TARGET_COL]
+    X_val, y_val     = val[FEATURE_COLS], val[TARGET_COL]
+    X_test, y_test   = test[FEATURE_COLS], test[TARGET_COL]
 
-    # Normalized target: log deviation from recent 30-day rolling mean.
+    # Normalization baselines
     train_baseline = np.log1p(train["volume_rolling_mean_30"].values)
+    val_baseline   = np.log1p(val["volume_rolling_mean_30"].values)
     test_baseline  = np.log1p(test["volume_rolling_mean_30"].values)
+    
     y_train_norm   = np.log1p(y_train.values) - train_baseline
+    y_val_norm     = np.log1p(y_val.values)   - val_baseline
     y_test_norm    = np.log1p(y_test.values)  - test_baseline
 
     all_metrics: Dict[str, Any] = {}
 
-    # ── 1. Linear Regression (baseline) ──────────────────────────
-    logger.info("\n🔵 Training Linear Regression (baseline)...")
+    # 1. Linear Regression (baseline - trained on Train+Val)
+    logger.info("Training Linear Regression baseline...")
+    X_train_val = pd.concat([X_train, X_val])
+    y_train_val = pd.concat([y_train, y_val])
+    
     lr_pipeline = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LinearRegression())
     ])
-    lr_pipeline.fit(X_train, y_train)
+    lr_pipeline.fit(X_train_val, y_train_val)
     lr_preds = lr_pipeline.predict(X_test)
     all_metrics["linear"] = compute_metrics(y_test.values, lr_preds, "Linear")
     joblib.dump(lr_pipeline, "models/linear_regression.joblib")
-    logger.info("  ✅ Saved → models/linear_regression.joblib")
 
-    # ── 2. XGBoost (trains on log target) ────────────────────────
-    logger.info("\n🟠 Training XGBoost...")
+    # 2. XGBoost (Early stopping on Validation set)
+    logger.info("Training XGBoost with validation-based early stopping...")
     xgb_model = XGBRegressor(
         n_estimators=1000,
         learning_rate=0.03,
@@ -95,16 +105,15 @@ def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv") -> Dict[
     )
     xgb_model.fit(
         X_train, y_train_norm,
-        eval_set=[(X_test, y_test_norm)],
+        eval_set=[(X_val, y_val_norm)],
         verbose=False
     )
     xgb_preds = np.expm1(xgb_model.predict(X_test) + test_baseline)
     all_metrics["xgboost"] = compute_metrics(y_test.values, xgb_preds, "XGBoost")
     joblib.dump(xgb_model, "models/xgboost.joblib")
-    logger.info("  ✅ Saved → models/xgboost.joblib")
 
-    # ── 3. CatBoost (trains on log target) ───────────────────────
-    logger.info("\n🟣 Training CatBoost...")
+    # 3. CatBoost (Early stopping on Validation set)
+    logger.info("Training CatBoost with validation-based early stopping...")
     cat_model = CatBoostRegressor(
         iterations=1000,
         learning_rate=0.03,
@@ -116,40 +125,37 @@ def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv") -> Dict[
     )
     cat_model.fit(
         X_train, y_train_norm,
-        eval_set=(X_test, y_test_norm),
+        eval_set=(X_val, y_val_norm),
         verbose=False
     )
     cat_preds = np.expm1(cat_model.predict(X_test) + test_baseline)
     all_metrics["catboost"] = compute_metrics(y_test.values, cat_preds, "CatBoost")
     cat_model.save_model("models/catboost.cbm")
-    logger.info("  ✅ Saved → models/catboost.cbm")
 
-    # ── Save test predictions for evaluation plots ────────────────
+    # Save true test predictions for evaluation
     test_results = test.copy()
     test_results["pred_linear"]  = lr_preds
     test_results["pred_xgboost"] = xgb_preds
     test_results["pred_catboost"] = cat_preds
     test_results.to_csv("models/test_predictions.csv", index=False)
 
-    # ── Save metrics as JSON ──────────────────────────────────────
+    # Save metrics JSON
     all_metrics["xgboost"]["target"]  = "log_ratio_to_rolling_mean_30"
     all_metrics["catboost"]["target"] = "log_ratio_to_rolling_mean_30"
     all_metrics["linear"]["target"]   = "raw"
     with open("models/metrics.json", "w") as f:
         json.dump(all_metrics, f, indent=2)
 
+    logger.info("Training pipeline complete. Models saved to models/")
+    
+    # Summary Table
     logger.info("\n" + "="*55)
-    logger.info("📊 FINAL RESULTS SUMMARY")
-    logger.info("="*55)
     logger.info(f"{'Model':<20} {'MAE':>12} {'RMSE':>12} {'SMAPE':>10}")
     logger.info("-"*55)
     for model, m in all_metrics.items():
         logger.info(f"{model:<20} {m['mae']:>12,.0f} {m['rmse']:>12,.0f} {m['smape']:>9.2f}%")
     logger.info("="*55)
-
-    best = min(all_metrics, key=lambda x: all_metrics[x]["smape"])
-    logger.info(f"\n🏆 Best model: {best.upper()} (SMAPE: {all_metrics[best]['smape']:.2f}%)")
-    logger.info("\n✅ All models trained and saved to /models")
+    
     return all_metrics
 
 if __name__ == "__main__":

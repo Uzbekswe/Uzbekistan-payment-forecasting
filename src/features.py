@@ -93,6 +93,10 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         df["usd_uzs_rate_lag7"]   = df["usd_uzs_rate"].shift(7)
         df["usd_uzs_rate_change"] = df["usd_uzs_rate"].pct_change(7).round(6)
 
+    # Drop columns that are not useful for forecasting
+    if "region" in df.columns:
+        df = df.drop(columns=["region"])
+
     # Drop NaN rows produced by lags/rolling (first ~30 rows)
     df = df.dropna().reset_index(drop=True)
 
