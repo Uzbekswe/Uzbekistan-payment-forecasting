@@ -1,6 +1,17 @@
 import sys
+import logging
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))  # makes 'src' importable when run directly
+from typing import Dict, Any, Tuple
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
+sys.path.insert(0, str(Path(__file__).parent.parent))  # makes 'src' importable
 
 import pandas as pd
 import numpy as np
@@ -16,7 +27,8 @@ from src.features import FEATURE_COLS
 os.makedirs("plots", exist_ok=True)
 
 
-def load_artifacts():
+def load_artifacts() -> Tuple[pd.DataFrame, Dict[str, Any], Any, CatBoostRegressor]:
+    """Load predictions, metrics, and models for evaluation."""
     preds = pd.read_csv("models/test_predictions.csv")
     preds["date"] = pd.to_datetime(preds["date"])
     with open("models/metrics.json") as f:
@@ -27,14 +39,14 @@ def load_artifacts():
     return preds, metrics, xgb, cat
 
 
-def plot_forecast_vs_actual(preds, metrics):
+def plot_forecast_vs_actual(preds: pd.DataFrame, metrics: Dict[str, Any]) -> None:
+    """Generate and save a multi-panel plot comparing forecasts to actuals."""
     fig, axes = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
     fig.suptitle(
         "Uzbekistan Payment Volume Forecasting — Model Comparison\n2023–2024 Test Period",
         fontsize=14, fontweight="bold", y=0.98
     )
 
-    # SMAPE values read from metrics.json — not hardcoded
     models = [
         ("pred_linear",   "Linear Regression", "#e74c3c", metrics["linear"]["smape"]),
         ("pred_xgboost",  "XGBoost",           "#f39c12", metrics["xgboost"]["smape"]),
@@ -74,10 +86,11 @@ def plot_forecast_vs_actual(preds, metrics):
     plt.tight_layout()
     plt.savefig("plots/forecast_vs_actual.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("✅ Saved → plots/forecast_vs_actual.png")
+    logger.info("✅ Saved → plots/forecast_vs_actual.png")
 
 
-def plot_metrics_comparison(metrics):
+def plot_metrics_comparison(metrics: Dict[str, Any]) -> None:
+    """Generate and save a bar chart comparing performance metrics across models."""
     fig, axes = plt.subplots(1, 3, figsize=(13, 5))
     fig.suptitle("Model Performance Comparison", fontsize=14, fontweight="bold")
 
@@ -101,10 +114,11 @@ def plot_metrics_comparison(metrics):
     plt.tight_layout()
     plt.savefig("plots/metrics_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("✅ Saved → plots/metrics_comparison.png")
+    logger.info("✅ Saved → plots/metrics_comparison.png")
 
 
-def plot_shap(xgb_model, preds):
+def plot_shap(xgb_model: Any, preds: pd.DataFrame) -> None:
+    """Generate and save a SHAP summary plot for feature importance."""
     X_test = preds[FEATURE_COLS]
 
     explainer = shap.TreeExplainer(xgb_model)
@@ -119,10 +133,11 @@ def plot_shap(xgb_model, preds):
     plt.tight_layout()
     plt.savefig("plots/shap_importance.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("✅ Saved → plots/shap_importance.png")
+    logger.info("✅ Saved → plots/shap_importance.png")
 
 
-def plot_residuals(preds):
+def plot_residuals(preds: pd.DataFrame) -> None:
+    """Generate and save a residual plot to analyze prediction errors over time."""
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     fig.suptitle("Residual Analysis — Prediction Errors by Month",
                  fontsize=13, fontweight="bold")
@@ -153,7 +168,23 @@ def plot_residuals(preds):
     plt.tight_layout()
     plt.savefig("plots/residuals.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("✅ Saved → plots/residuals.png")
+    logger.info("✅ Saved → plots/residuals.png")
+
+
+if __name__ == "__main__":
+    logger.info("📊 Generating evaluation plots...")
+    preds, metrics, xgb, cat = load_artifacts()
+
+    plot_forecast_vs_actual(preds, metrics)
+    plot_metrics_comparison(metrics)
+    plot_shap(xgb, preds)
+    plot_residuals(preds)
+
+    logger.info("\n✅ All plots saved to /plots — ready for LinkedIn & README!")
+    logger.info("\nPlots generated:")
+    for f in sorted(os.listdir("plots")):
+        if f != ".gitkeep":
+            logger.info(f"  📈 plots/{f}")
 
 
 if __name__ == "__main__":

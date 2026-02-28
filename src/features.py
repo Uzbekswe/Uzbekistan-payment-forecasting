@@ -1,14 +1,23 @@
 import pandas as pd
 import numpy as np
+from typing import List, Tuple
 
 # Fixed reference date — must match the earliest date in the training data.
-# Using df["date"].min() would break inference: a 60-row window passed at
-# prediction time would produce days_elapsed in the 0–60 range instead of
-# the trained 0–2192 range, silently degrading tree model predictions.
-_TRAINING_START = pd.Timestamp("2019-01-01")
+_TRAINING_START: pd.Timestamp = pd.Timestamp("2019-01-01")
 
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transforms raw daily transaction data into a feature-enriched DataFrame.
+    
+    Includes:
+    - Temporal features (day, month, quarter, etc.)
+    - Cyclical sine/cosine encoding
+    - Uzbekistan-specific calendar flags (Ramadan, Navruz, etc.)
+    - Lagged and rolling window statistics
+    - Log-transformed trend indicators
+    - Real CBU exchange rate features
+    """
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
@@ -31,7 +40,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df["day_of_month_cos"] = np.cos(2 * np.pi * df["day_of_month"] / 31)
 
     # ── Uzbekistan-specific calendar flags ─────────────────────────
-    ramadan_dates = [
+    ramadan_dates: List[Tuple[str, str]] = [
         ("2019-05-05", "2019-06-03"),
         ("2020-04-23", "2020-05-23"),
         ("2021-04-12", "2021-05-12"),

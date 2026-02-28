@@ -1,6 +1,17 @@
 import sys
+import logging
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))  # makes 'src' importable when run directly
+from typing import Dict, Any, Tuple
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
+sys.path.insert(0, str(Path(__file__).parent.parent))  # makes 'src' importable
 
 import pandas as pd
 import numpy as np
@@ -14,29 +25,31 @@ from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 from src.features import build_features, FEATURE_COLS, TARGET_COL
 
-def train_test_split_temporal(df: pd.DataFrame):
+def train_test_split_temporal(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Walk-forward split — never shuffle time-series data!"""
     train = df[df["date"] < "2023-01-01"].copy()
     test  = df[df["date"] >= "2023-01-01"].copy()
-    print(f"  Train: {train['date'].min().date()} → {train['date'].max().date()} ({len(train)} rows)")
-    print(f"  Test:  {test['date'].min().date()} → {test['date'].max().date()} ({len(test)} rows)")
+    logger.info(f"  Train: {train['date'].min().date()} → {train['date'].max().date()} ({len(train)} rows)")
+    logger.info(f"  Test:  {test['date'].min().date()} → {test['date'].max().date()} ({len(test)} rows)")
     return train, test
 
-def compute_metrics(y_true, y_pred, model_name: str) -> dict:
+def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, model_name: str) -> Dict[str, float]:
+    """Calculate and return evaluation metrics for predictions."""
     mae  = np.mean(np.abs(y_true - y_pred))
     rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
     smape = np.mean(2 * np.abs(y_true - y_pred) / (np.abs(y_true) + np.abs(y_pred))) * 100
-    print(f"  [{model_name}] MAE: {mae:,.0f} | RMSE: {rmse:,.0f} | SMAPE: {smape:.2f}%")
-    return {"mae": round(mae, 2), "rmse": round(rmse, 2), "smape": round(smape, 4)}
+    logger.info(f"  [{model_name}] MAE: {mae:,.0f} | RMSE: {rmse:,.0f} | SMAPE: {smape:.2f}%")
+    return {"mae": round(float(mae), 2), "rmse": round(float(rmse), 2), "smape": round(float(smape), 4)}
 
-def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv"):
+def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv") -> Dict[str, Any]:
+    """Executes the full training pipeline for all models."""
     os.makedirs("models", exist_ok=True)
 
-    print("📂 Loading and building features...")
+    logger.info("📂 Loading and building features...")
     df_raw = pd.read_csv(data_path)
     df = build_features(df_raw)
 
-    print("\n📅 Splitting data...")
+    logger.info("\n📅 Splitting data...")
     train, test = train_test_split_temporal(df)
 
     X_train = train[FEATURE_COLS]
@@ -45,18 +58,15 @@ def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv"):
     y_test  = test[TARGET_COL]
 
     # Normalized target: log deviation from recent 30-day rolling mean.
-    # Trees predict seasonal patterns only — NOT absolute levels.
-    # At inference: predicted_volume = rolling_mean_30 * exp(tree_output)
-    # rolling_mean_30 auto-tracks current market scale (post structural breaks).
     train_baseline = np.log1p(train["volume_rolling_mean_30"].values)
     test_baseline  = np.log1p(test["volume_rolling_mean_30"].values)
     y_train_norm   = np.log1p(y_train.values) - train_baseline
     y_test_norm    = np.log1p(y_test.values)  - test_baseline
 
-    all_metrics = {}
+    all_metrics: Dict[str, Any] = {}
 
     # ── 1. Linear Regression (baseline) ──────────────────────────
-    print("\n🔵 Training Linear Regression (baseline)...")
+    logger.info("\n🔵 Training Linear Regression (baseline)...")
     lr_pipeline = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LinearRegression())
@@ -65,10 +75,10 @@ def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv"):
     lr_preds = lr_pipeline.predict(X_test)
     all_metrics["linear"] = compute_metrics(y_test.values, lr_preds, "Linear")
     joblib.dump(lr_pipeline, "models/linear_regression.joblib")
-    print("  ✅ Saved → models/linear_regression.joblib")
+    logger.info("  ✅ Saved → models/linear_regression.joblib")
 
     # ── 2. XGBoost (trains on log target) ────────────────────────
-    print("\n🟠 Training XGBoost...")
+    logger.info("\n🟠 Training XGBoost...")
     xgb_model = XGBRegressor(
         n_estimators=1000,
         learning_rate=0.03,
@@ -91,10 +101,10 @@ def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv"):
     xgb_preds = np.expm1(xgb_model.predict(X_test) + test_baseline)
     all_metrics["xgboost"] = compute_metrics(y_test.values, xgb_preds, "XGBoost")
     joblib.dump(xgb_model, "models/xgboost.joblib")
-    print("  ✅ Saved → models/xgboost.joblib")
+    logger.info("  ✅ Saved → models/xgboost.joblib")
 
     # ── 3. CatBoost (trains on log target) ───────────────────────
-    print("\n🟣 Training CatBoost...")
+    logger.info("\n🟣 Training CatBoost...")
     cat_model = CatBoostRegressor(
         iterations=1000,
         learning_rate=0.03,
@@ -112,35 +122,34 @@ def train_all(data_path: str = "data/uzbekistan_payments_enriched.csv"):
     cat_preds = np.expm1(cat_model.predict(X_test) + test_baseline)
     all_metrics["catboost"] = compute_metrics(y_test.values, cat_preds, "CatBoost")
     cat_model.save_model("models/catboost.cbm")
-    print("  ✅ Saved → models/catboost.cbm")
+    logger.info("  ✅ Saved → models/catboost.cbm")
 
     # ── Save test predictions for evaluation plots ────────────────
-    test = test.copy()
-    test["pred_linear"]  = lr_preds
-    test["pred_xgboost"] = xgb_preds
-    test["pred_catboost"] = cat_preds
-    test.to_csv("models/test_predictions.csv", index=False)
+    test_results = test.copy()
+    test_results["pred_linear"]  = lr_preds
+    test_results["pred_xgboost"] = xgb_preds
+    test_results["pred_catboost"] = cat_preds
+    test_results.to_csv("models/test_predictions.csv", index=False)
 
     # ── Save metrics as JSON ──────────────────────────────────────
-    # Record normalization method so predict.py knows how to denormalize
     all_metrics["xgboost"]["target"]  = "log_ratio_to_rolling_mean_30"
     all_metrics["catboost"]["target"] = "log_ratio_to_rolling_mean_30"
     all_metrics["linear"]["target"]   = "raw"
     with open("models/metrics.json", "w") as f:
         json.dump(all_metrics, f, indent=2)
 
-    print("\n" + "="*55)
-    print("📊 FINAL RESULTS SUMMARY")
-    print("="*55)
-    print(f"{'Model':<20} {'MAE':>12} {'RMSE':>12} {'SMAPE':>10}")
-    print("-"*55)
+    logger.info("\n" + "="*55)
+    logger.info("📊 FINAL RESULTS SUMMARY")
+    logger.info("="*55)
+    logger.info(f"{'Model':<20} {'MAE':>12} {'RMSE':>12} {'SMAPE':>10}")
+    logger.info("-"*55)
     for model, m in all_metrics.items():
-        print(f"{model:<20} {m['mae']:>12,.0f} {m['rmse']:>12,.0f} {m['smape']:>9.2f}%")
-    print("="*55)
+        logger.info(f"{model:<20} {m['mae']:>12,.0f} {m['rmse']:>12,.0f} {m['smape']:>9.2f}%")
+    logger.info("="*55)
 
     best = min(all_metrics, key=lambda x: all_metrics[x]["smape"])
-    print(f"\n🏆 Best model: {best.upper()} (SMAPE: {all_metrics[best]['smape']:.2f}%)")
-    print("\n✅ All models trained and saved to /models")
+    logger.info(f"\n🏆 Best model: {best.upper()} (SMAPE: {all_metrics[best]['smape']:.2f}%)")
+    logger.info("\n✅ All models trained and saved to /models")
     return all_metrics
 
 if __name__ == "__main__":

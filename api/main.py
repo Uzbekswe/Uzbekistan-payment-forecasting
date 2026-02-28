@@ -1,44 +1,87 @@
 import sys
+import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import Literal, Dict, Any, List
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
 sys.path.insert(0, str(Path(__file__).parent.parent))  # makes 'src' importable
 
-from contextlib import asynccontextmanager
-from typing import Literal
-
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, field_validator
 
 from src.predict import load_models, make_prediction
 
 
 # ── Lifespan: load models once at startup, clean up at shutdown ───────────────
-# Using lifespan (FastAPI 0.93+) — @app.on_event("startup") is deprecated.
-_models: dict = {}
+_models: Dict[str, Any] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load all models into memory when the server starts."""
-    print("🚀 Loading models into memory...")
-    _models.update(load_models())
-    loaded = [k for k in _models if k != "metrics" and k != "history_df"]
-    print(f"✅ Models loaded: {loaded}")
+    logger.info("🚀 Loading models into memory...")
+    try:
+        _models.update(load_models())
+        loaded = [k for k in _models if k not in ("metrics", "history_df")]
+        logger.info(f"✅ Models loaded successfully: {loaded}")
+    except Exception as e:
+        logger.error(f"❌ Failed to load models: {e}")
+        # In production, you might want to exit here if models are critical
+    
     yield
-    # Cleanup (nothing to do here, but good practice to have the hook)
+    
     _models.clear()
-    print("👋 Server shutting down — models released.")
+    logger.info("👋 Server shutting down — models released.")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="Uzbekistan Payment Volume Forecasting API",
-    description=(
-        "Predicts daily digital payment transaction volumes across Uzbekistan "
-        "using Linear Regression, XGBoost, and CatBoost models trained on "
-        "2019–2022 data and validated on 2023–2024 walk-forward test set."
-    ),
+    title="🇺🇿 Uzbekistan Payment Volume Forecasting API",
+    description="""
+    ### 🚀 Production-grade Forecasting System
+    This API predicts daily digital payment transaction volumes across Uzbekistan's 
+    fast-growing payment ecosystem.
+    
+    **Key Features:**
+    * **Multi-model inference:** Compare Linear Regression, XGBoost, and CatBoost.
+    * **Domain-aware:** Incorporates Ramadan, Navruz, and local payday cycles.
+    * **Macro-integrated:** Uses real-time USD/UZS exchange rates from the Central Bank.
+    * **Explainable:** Models are evaluated using SHAP and rigorous backtesting.
+    """,
     version="1.0.0",
     lifespan=lifespan,
+    contact={
+        "name": "Mukhammadali",
+        "url": "https://github.com/Uzbekswe",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
+)
+
+# ── Middleware (Hardening) ───────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific domains
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"] # Add your domain here
 )
 
 
