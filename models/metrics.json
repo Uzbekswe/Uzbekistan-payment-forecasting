@@ -1,0 +1,20 @@
+{
+  "linear": {
+    "mae": 301994.93,
+    "rmse": 414190.1,
+    "smape": 7.5849,
+    "target": "raw"
+  },
+  "xgboost": {
+    "mae": 205019.46,
+    "rmse": 265995.39,
+    "smape": 5.3873,
+    "target": "log_ratio_to_rolling_mean_30"
+  },
+  "catboost": {
+    "mae": 227860.69,
+    "rmse": 301238.99,
+    "smape": 5.9208,
+    "target": "log_ratio_to_rolling_mean_30"
+  }
+}

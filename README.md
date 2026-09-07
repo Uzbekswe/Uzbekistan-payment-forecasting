@@ -1,6 +1,6 @@
 # 🇺🇿 Uzbekistan Payment Volume Forecasting
 
-> **Production-grade time-series forecasting system predicting daily digital payment transaction volumes across Uzbekistan's fast-growing payment ecosystem — built with XGBoost, CatBoost, Linear Regression, FastAPI, and Docker.**
+> **Portfolio-scale time-series forecasting prototype for daily digital payment volumes in Uzbekistan, built with XGBoost, CatBoost, Linear Regression, FastAPI, and Docker.**
 
 ---
 
@@ -17,7 +17,13 @@ Uzbekistan's digital payment market is one of the fastest-growing in Central Asi
 - **Anomaly detection** — is today's volume suspiciously low or high?
 - **Business intelligence** — which seasons, holidays, and economic events drive payment behavior?
 
-This project builds a complete, production-style forecasting pipeline that answers these questions — from raw data to a deployed REST API endpoint.
+This project builds a complete forecasting prototype covering raw data, model evaluation, and a locally runnable REST API endpoint.
+
+## Project status
+
+**Status:** Complete portfolio-scale forecasting prototype.
+
+The repository demonstrates the full workflow from feature engineering and model comparison to evaluation and API serving. The payment-volume data is synthetic and calibrated with public aggregate information, so production use would require access to transaction-level data from a payment provider.
 
 ---
 
@@ -30,7 +36,7 @@ This project builds a complete, production-style forecasting pipeline that answe
 | Model comparison | Linear Regression vs XGBoost vs CatBoost |
 | Real data integration | Live USD/UZS rates from Central Bank of Uzbekistan API |
 | Model explainability | SHAP feature importance analysis |
-| Production ML serving | FastAPI REST endpoint with input validation |
+| Local model serving | FastAPI REST endpoint with input validation |
 | Containerization | Docker + docker-compose deployment |
 | Evaluation rigor | MAE, RMSE, SMAPE across time segments |
 
@@ -83,7 +89,7 @@ Central Bank of Uzbekistan API (cbu.uz)
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│              PRODUCTION SERVING                      │
+│                 API SERVING                          │
 │                                                      │
 │   POST /predict → FastAPI → Best Model → Forecast   │
 │   GET  /health  → Status check                      │
@@ -155,7 +161,7 @@ USD/UZS exchange rates are fetched directly from the **Central Bank of Uzbekista
 
 ## 🔧 Feature Engineering
 
-28 features engineered from raw date + economic signals:
+36 features engineered from raw date + economic signals:
 
 **Temporal features** — `days_elapsed`, `day_of_week`, `month`, `quarter`, `week_of_year`, `day_of_month`
 
@@ -177,16 +183,17 @@ USD/UZS exchange rates are fetched directly from the **Central Bank of Uzbekista
 Standard OLS regression. Establishes the performance floor. Good at capturing the overall trend but struggles with nonlinear seasonal patterns — exactly what your friend's project demonstrated with disease data.
 
 ### 2. XGBoost
-Gradient boosted trees. Captures nonlinear interactions between features (e.g., the combination of Ramadan + weekend behaves differently than either alone). Typically 25–40% better SMAPE than linear baseline on this type of data.
+Gradient boosted trees. Captures nonlinear interactions between features (e.g., the combination of Ramadan + weekend behaves differently than either alone).
 
 ### 3. CatBoost
 Yandex's gradient boosting library — particularly relevant for CIS-region companies (Yandex technology is deeply embedded in Uzbekistan's tech ecosystem). Handles categorical features natively and often outperforms XGBoost on tabular data with less hyperparameter tuning.
 
-### Train/Test Split
-- **Training:** 2019-01-01 → 2022-12-31 (4 years)
-- **Testing:** 2023-01-01 → 2024-12-31 (2 years, never seen during training)
+### Temporal Split
+- **Training:** 2019-01-31 → 2022-08-31 (after lag/rolling rows are removed)
+- **Validation:** 2022-09-01 → 2022-12-31
+- **Testing:** 2023-01-01 → 2024-12-31 (future holdout)
 
-This is a **walk-forward** split — the model is always tested on future data, never random shuffling (which would cause data leakage in time-series).
+The data is split chronologically rather than randomly to avoid time-series leakage.
 
 ---
 
@@ -199,6 +206,16 @@ This is a **walk-forward** split — the model is always tested on future data, 
 | **SMAPE** | Symmetric percentage error — scale-independent, comparable across models |
 
 Results are computed both overall and broken down by year, quarter, and Uzbekistan-specific periods (Ramadan, Navruz, COVID).
+
+Reproduced on 2026-09-07 with `python src/train.py`:
+
+| Model | MAE | RMSE | SMAPE |
+|---|---:|---:|---:|
+| Linear Regression | 301,994.93 | 414,190.10 | 7.5849% |
+| XGBoost | **205,019.46** | **265,995.39** | **5.3873%** |
+| CatBoost | 227,860.69 | 301,238.99 | 5.9208% |
+
+The machine-readable output is stored in `models/metrics.json`. These results use synthetic payment-volume targets; they demonstrate the pipeline and should not be interpreted as performance on real payment-provider data.
 
 ---
 
